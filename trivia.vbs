@@ -9,7 +9,7 @@ Script("Revision") = 0
 Dim questions(2000)
 Dim answers(2000)
 
-Dim admins(3)
+Dim admins(4)
 
 Dim answersFile
 Dim triviaBotName
@@ -19,12 +19,31 @@ Dim triviaRealAnswerPrefix
 Dim triviaRealAnswerEnd
 
 Dim currentQuestion
+Dim shouldAnswerQuestions
+Dim shouldDelayAnswer
+
+Dim COMMAND_INFO
+Dim COMMAND_ANSWERING_ON
+Dim COMMAND_ANSWERING_OFF
+Dim COMMAND_ANSWER_ONE_QUESTION
+Dim COMMAND_DELAY_ON
+Dim COMMAND_DELAY_OFF
 
 Sub Event_Load()
 	admins(0) = "RUSSIA2020AD"
 	admins(1) = "scottrick49"
 	admins(2) = "regularblack"
+	admins(3) = "wookiepedia"
 	
+	COMMAND_INFO = "!info"
+	COMMAND_ANSWERING_ON = "!answer on"
+	COMMAND_ANSWERING_OFF = "!answer off"
+	COMMAND_ANSWER_ONE_QUESTION = "!a"
+	COMMAND_DELAY_ON = "!delay on"
+	COMMAND_DELAY_OFF = "!delay off"
+	
+	shouldAnswerQuestions = False
+	shouldDelayAnswer = False
 	answersFile = "TJOC_Answers.txt"
 	triviaBotName = "TJOC.Trivia.Inf"
 	triviaQuestionPrefix = "(TJOC trivia.txt) $1.00:"
@@ -43,15 +62,11 @@ Sub Event_LoggedOn(Username, Product)
 End Sub
 
 Sub Event_UserTalk(Username, Flags, Message, Ping)
-	For Each item in admins
-		If StrComp(UCase(Username), UCase(item)) = 0 Then
-			If StrComp(UCase(Message), UCase("!info")) = 0 Then
-				call PrintInfo
-			End If
-			
-			Exit Sub
-		End If
-	Next
+	call HandleMessage(Username, Flags, Message, Ping)
+End Sub
+
+Sub Event_WhisperFromUser(Username, Flags, Message, Ping)
+	call HandleMessage(Username, Flags, Message, Ping)
 End Sub
 
 Sub Event_UserEmote(Username, Flags, Message)
@@ -65,13 +80,9 @@ Sub Event_UserEmote(Username, Flags, Message)
 			question = Mid(Message, Len(triviaQuestionPrefix) + 1)
 			question = Trim(question)
 			currentQuestion = question
-			
-			answerIndex = FindAnswer(question)
-			
-			If answerIndex >= 0 Then
-				AddQ answers(answerIndex)
-			Else
-				AddChat vbRed, "No answer"
+
+			If shouldAnswerQuestions Then
+				AnswerCurrentQuestion()
 			End If
 		Else
 			'Not a question, so see if its an answer
@@ -132,13 +143,34 @@ Sub AddAnswer(answer)
 	Next
 End Sub
 
+Function AnswerCurrentQuestion()
+	answerIndex = FindAnswer(currentQuestion)
+	
+	If answerIndex >= 0 Then
+		If shouldDelayAnswer Then
+			elapsed = TimeSerial(0, 0, 5)
+			startTime = Time()
+			endTime = TimeValue(startTime) + TimeValue(elapsed)
+			While endTime > Time()
+				'
+			Wend
+		End If
+		
+		AddQ LCase(answers(answerIndex))
+		AnswerCurrentQuestion = True
+	Else 
+		AddChat vbRed, "No Answer."
+		AnswerCurrentQuestion = False
+	End If
+End Function
+
 Function FindAnswer(question)
 	index = 0
 	
 	For Each item In questions
 		If StrComp(question, item) = 0 Then
 			FindAnswer = index
-			AddChat &H7D26CD, " --> Found answer at index " & index
+			AddChat &H00cc00, "Found answer at index " & index
 			Exit Function
 		End If
 		
@@ -148,20 +180,38 @@ Function FindAnswer(question)
 	FindAnswer = -1
 End Function
 
-Sub PrintInfo
-	count = 0
-	For Each item in questions
-		If Len(item) <= 0 Then Exit For
-	
-		count = count + 1
+Sub HandleMessage(Username, Flags, Message, Ping)
+	For Each item in admins
+		If StrComp(UCase(Username), UCase(item)) = 0 Then
+			If StrComp(UCase(Message), UCase(COMMAND_INFO)) = 0 Then
+				call SendInfo(Username)
+			ElseIf StrComp(UCase(Message), UCase(COMMAND_ANSWERING_ON)) = 0 Then
+				shouldAnswerQuestions = True
+				AddQ "/w " & Username & " Answer on!"
+				call AnswerCurrentQuestion()
+			ElseIf StrComp(UCase(Message), UCase(COMMAND_ANSWERING_OFF)) = 0 Then
+				shouldAnswerQuestions = False
+				AddQ "/w " & Username & " Answer off."
+			ElseIf StrComp(UCase(MESSAGE), UCase(COMMAND_ANSWER_ONE_QUESTION)) = 0 Then
+				bAnswered = AnswerCurrentQuestion()
+				
+				If bAnswered Then
+					AddQ "/w " & Username & " Answered!"
+				Else
+					AddQ "/w " & Username & " Answer unknown."
+				End If
+			ElseIf StrComp(UCase(MESSAGE), UCase(COMMAND_DELAY_ON)) = 0 Then
+				shouldDelayAnswer = True
+				AddQ "/w " & Username & " Delay on!"
+			ElseIf StrComp(UCase(MESSAGE), UCase(COMMAND_DELAY_OFF)) = 0 Then
+				shouldDelayAnswer = False
+				AddQ "/w " & Username & " Delay off."
+			End If
+		End If
 	Next
-	
-	AddQ "FatBot" & Chr(153) & " --- " & count & " questions cataloged."
 End Sub
 
 Sub ReadTriviaFile
-	AddChat vbYellow, "ReadTriviaFile"
-	
 	Set fso = CreateObject("Scripting.FileSystemObject")
 	Set file = fso.OpenTextFile(answersFile, 1)
 	index = 0
@@ -175,6 +225,34 @@ Sub ReadTriviaFile
 	Loop
 	
 	file.Close
+	
+	AddChat vbYellow, "ReadTriviaFile " & index & " cataloged."
+End Sub
+
+Sub SendInfo(Username)
+	count = 0
+	For Each item in questions
+		If Len(item) <= 0 Then Exit For
+	
+		count = count + 1
+	Next
+	
+	Dim answeringString
+	Dim delayString
+	
+	If shouldAnswerQuestions Then
+		answeringString = "Is answering questions."
+	Else
+		answeringString = "Not answering questions."
+	End If
+	
+	If shouldDelayAnswer Then
+		delayString = "Is delaying answers."
+	Else
+		delayString = "Not delaying answers."
+	End If
+	
+	AddQ "/w " & Username & " FatBot" & Chr(153) & " --- " & count & " questions cataloged.  " & answeringString & "  " & delayString
 End Sub
 
 Sub WriteTriviaFile
@@ -189,7 +267,6 @@ Sub WriteTriviaFile
 			Exit Sub
 		End If
 	
-		'AddChat vbYellow, "Writing [" & questions(index) & "] [" & answers(index) & "]"
 		file.WriteLine(questions(index))
 		file.WriteLine(answers(index))
 		
